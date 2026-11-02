@@ -1,5 +1,10 @@
 # REPRODUCE — the 5 key results, step by step
 
+**One command:** `./reproduce.sh` (from the repo root) runs every step below
+and checks each expected marker automatically — 6/6 PASS on a clean clone.
+The manual steps below are the same commands, for inspectors who want to
+run or probe each result individually.
+
 Environment: Python 3 + `numpy` + `scipy` + `matplotlib`. No network.
 All commands run from `src/`. Every gate is deterministic (seeded PRNG).
 
