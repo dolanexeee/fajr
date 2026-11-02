@@ -22,7 +22,7 @@ Section 2 lists what is explicitly NOT claimed.
   monotonically.
 
 ### C3. Her voice is fully synthetic from physical models, every phoneme gated
-- **Evidence:** `src/voice/` — Rosenberg (1970) glottal pulses +
+- **Evidence:** `src/voice/` — Rosenberg (1971) glottal pulses +
   Kelly-Lochbaum waveguide, 20 sections = 14.6 cm (human scale);
   vowels optimized against Peterson & Barney targets
   (`src/voice/human_vowels.json`); gate functions in
@@ -42,7 +42,7 @@ Section 2 lists what is explicitly NOT claimed.
 - **Evidence:** `LANGUAGE-GROUNDING.md`; `src/grounding.py`;
   `proof-27-grounding-map.png` (every word → sensor+drive+action).
 - **Re-verify:** `cd src && python3 test_grounding.py`
-  → `ALL GROUNDING GATES PASS` (17 gates).
+  → `ALL GROUNDING GATES PASS` (19 gates).
 
 ### C6. She coined a novel word from experience ('bibi')
 - **Evidence:** `src/test_grounding.py` part B — novel percept,
@@ -70,7 +70,9 @@ Section 2 lists what is explicitly NOT claimed.
 These are not asserted, and must not be read into the work:
 
 - **No consciousness claim.** Butlin's 14 indicators were used as
-  an engineering checklist (11 fully + 3 partially implementable);
+  an engineering checklist — measured **5 MET / 9 PARTIAL / 0 NOT-MET**
+  (batteries v3+v4); the pre-measurement design estimate was 11 fully
+  + 3 partially implementable;
   the indicators do not prove consciousness, per the authors.
 - **No biological-life claim.** She is a mechanistic system: code,
   waveguides, journals. "Cells" in proof images are tract sections

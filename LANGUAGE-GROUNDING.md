@@ -76,7 +76,7 @@ Novel percept "ember" (warmth=high, glow=flicker, texture=rough):
 
 ## Files
 - `src/grounding.py` — registry + novelty mechanism (NEW)
-- `src/test_grounding.py` — harness, FakeSim, 17 gates (NEW)
+- `src/test_grounding.py` — harness, FakeSim, 19 gates (NEW)
 - `src/novel_timeline.json` — experiment timeline (generated)
 - `src/conversation.py` — unanchored-teaching fix
 - Proof pack: `proof-27-grounding-map.png`, `proof-28-before-after.png`,

@@ -60,7 +60,7 @@ cd ~/workspace/projects/alsakin-inhabitant/src
 python3 --version            # 3.x
 python3 -c "import numpy, scipy, matplotlib; print('deps ok')"
 
-# 4a. language grounding — 17 gates
+# 4a. language grounding — 19 gates
 python3 test_grounding.py
 # expected last line: ALL GROUNDING GATES PASS
 # (also writes src/novel_timeline.json — the 'bibi' experiment data)

@@ -452,15 +452,27 @@ def gate_utterance(text):
 
 
 def utterance_stats():
-    """(text, count) for her 14 utterances — filled by survey_utterances()."""
+    """(text, count) for her 14 utterances — filled by survey_utterances().
+
+    Degrades gracefully when the private journal is absent (e.g. in the
+    open-source tree, where life/ is excluded): reports the missing input
+    and returns an empty counter instead of raising FileNotFoundError.
+    """
     import json, os
     from collections import Counter
     J = os.path.join(os.path.dirname(__file__), "..", "..", "life", "journal.jsonl")
     c = Counter()
-    for line in open(J):
-        o = json.loads(line)
-        if o["type"] == "utterance":
-            c[o["text"]] += 1
+    try:
+        fh = open(J)
+    except FileNotFoundError:
+        print(f"NOTE: journal not found at {J} — private biography excluded "
+              f"from this tree; utterance table will be empty.")
+        return c
+    with fh:
+        for line in fh:
+            o = json.loads(line)
+            if o["type"] == "utterance":
+                c[o["text"]] += 1
     return c
 
 
