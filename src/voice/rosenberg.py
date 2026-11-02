@@ -5,7 +5,7 @@ the tract (harsh buzz). A C1-smooth pulse (raised-cosine rise/fall) has a
 gentle spectral tilt — warm, not harsh — while keeping f0 and formants
 intact. Fully mechanical: parametric equations, no recordings, no TTS.
 
-Reference: Rosenberg (1970) parametric glottal flow.
+Reference: Rosenberg (1971) parametric glottal flow.
 """
 import numpy as np
 
