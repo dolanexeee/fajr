@@ -120,6 +120,47 @@ class Pile:
         self.id, self.x, self.y, self.fruit = pid, x, y, fruit
 
 
+class Crop:
+    """ADAM & EVE P6: a planted seed. PURE WORLD PHYSICS — the world does
+    not know "farming"; it knows: seed + water + time -> growth stages.
+    WHAT the agents do with this is their discovery; HOW it grows is ours.
+    Stages: seed (growth<60) -> sprout (60-160) -> mature (>160, bears fruit).
+    Water: rain refills; each watered tick grows. No water, no growth."""
+    __slots__ = ("id", "x", "y", "growth", "water", "fruit", "planter",
+                 "regrow")
+
+    def __init__(self, cid, x, y, planter=None):
+        self.id, self.x, self.y = cid, x, y
+        self.growth = 0.0
+        self.water = 20.0      # soil starts slightly moist
+        self.fruit = 0
+        self.planter = planter  # "adam"/"child"/"fajr"/None — who planted
+        self.regrow = 0
+
+    @property
+    def stage(self):
+        if self.growth > 160.0:
+            return "mature"
+        if self.growth > 60.0:
+            return "sprout"
+        return "seed"
+
+    def to_dict(self):
+        return {"id": self.id, "x": self.x, "y": self.y,
+                "growth": self.growth, "water": self.water,
+                "fruit": self.fruit, "planter": self.planter,
+                "regrow": self.regrow}
+
+    @classmethod
+    def from_dict(cls, d):
+        c = cls(d["id"], d["x"], d["y"], d.get("planter"))
+        c.growth = float(d.get("growth", 0.0))
+        c.water = float(d.get("water", 0.0))
+        c.fruit = int(d.get("fruit", 0))
+        c.regrow = int(d.get("regrow", 0))
+        return c
+
+
 class World:
     def __init__(self, seed: int, layout: str = "default"):
         rng = PRNG(seed * 7919 + 13)
@@ -127,6 +168,7 @@ class World:
         self.thickets = []
         self.materials = []
         self.piles = []
+        self.crops = []              # P6: planted seeds (world physics)
         self.structures = []          # placed items that persist: {kind, x, y}
         self.weather = "clear"        # clear | rain | storm
         self.weather_timer = 0
@@ -240,6 +282,22 @@ class World:
                 if t.regrow >= t.regrow_need:
                     t.fruit += 1
                     t.regrow = 0
+        # P6: crop physics — rain waters; watered ticks grow; mature bears
+        raining = self.weather in ("rain", "storm")
+        for c in self.crops:
+            if raining:
+                c.water = 100.0
+            if c.water > 0:
+                c.water = max(0.0, c.water - 0.03)
+                was = c.stage
+                c.growth += 0.06
+                if c.stage == "mature" and was != "mature":
+                    c.fruit = 3          # first bearing
+                elif c.stage == "mature" and c.fruit <= 0:
+                    c.regrow += 1        # re-bearing takes ~a day watered
+                    if c.regrow >= 1500:
+                        c.fruit = 3
+                        c.regrow = 0
         # weather machine (seasons-lite bias: more rain as season_phase -> 0.5)
         self.weather_timer -= 1
         if self.weather_timer <= 0:
@@ -262,6 +320,7 @@ class World:
             "thickets": [{"id": t.id, "x": t.x, "y": t.y, "r": t.r} for t in self.thickets],
             "materials": [{"id": m.id, "kind": m.kind, "x": m.x, "y": m.y} for m in self.materials],
             "piles": [{"id": p.id, "x": p.x, "y": p.y, "fruit": p.fruit} for p in self.piles],
+            "crops": [c.to_dict() for c in self.crops],
             "structures": list(self.structures),
             "weather": self.weather,
             "weather_timer": self.weather_timer,
@@ -281,6 +340,7 @@ class World:
         w.thickets = [Thicket(t["id"], t["x"], t["y"], t["r"]) for t in d["thickets"]]
         w.materials = [Material(m["id"], m["kind"], m["x"], m["y"]) for m in d["materials"]]
         w.piles = [Pile(p["id"], p["x"], p["y"], p["fruit"]) for p in d.get("piles", [])]
+        w.crops = [Crop.from_dict(c) for c in d.get("crops", [])]
         w.structures = [dict(s) for s in d["structures"]]
         w.weather = d["weather"]
         w.weather_timer = d["weather_timer"]

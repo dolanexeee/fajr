@@ -39,6 +39,9 @@ class FakeEpisodic:
     def set_semantic(self, *a):
         pass
 
+    def record(self, *a, **k):
+        pass
+
 
 class FakePerception:
     def __init__(self):
@@ -57,6 +60,7 @@ class FakeMind:
         self.episodic = FakeEpisodic()
         self.perception = FakePerception()
         self.beliefs = FakeBeliefs()
+        self.affect = type("A", (), {"valence": 0.5, "arousal": 0.3})()
 
 
 class FakeFajr:

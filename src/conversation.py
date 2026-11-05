@@ -52,6 +52,7 @@ class Conversation:
         self.outbox = []               # her requests, verbatim + grounding
         self.transcript = []           # {tick, day, time, who, text}
         self.covenant_done = False
+        self._kinship_taught = False   # ADAM & EVE P1: one-time kinship teaching
         self.pending_request = None    # drive key, once triggered
         self._request_armed = True
         self._need_since = {}          # drive -> tick first seen >= 75
@@ -65,6 +66,9 @@ class Conversation:
         self.last_directive = None     # measurement record of the latest instruction
         self.directive_log = []        # {tick, verb, directive|None}
         self._teach_cursor = 0
+        self._prev_asleep = sim.fajr.asleep   # wake detection for dreams
+        self._last_host_tick = -10 ** 9       # Phase 4: social depth
+        self._last_longing_day = 0
 
     # ---------------- plumbing ----------------
     def _log_line(self, who, text):
@@ -75,13 +79,32 @@ class Conversation:
         if who == "host":
             self.sim.journal.log(tick, "host_says", text,
                                  x=self.sim.fajr.x, y=self.sim.fajr.y)
+            # ---- social depth (Phase 4): meetings with the host are ----
+            # autobiographical. A meeting counts when the last contact was
+            # over half a day ago; reunions after 2+ days are journaled.
+            gap = tick - self._last_host_tick
+            self._last_host_tick = tick
+            if gap > 720:
+                f = self.sim.fajr
+                m = f.mind
+                m.episodic.record(tick, "met_host", f.x, f.y, ["host"],
+                                  {k: round(f.drives.d[k], 1) for k in
+                                   ("hunger", "thirst", "sleep", "safety")},
+                                  m.affect.valence, m.affect.arousal,
+                                  outcome=0.6, note="host meeting")
+                if gap > 2 * TICKS_PER_DAY:
+                    self.sim.journal.log(tick, "reunion",
+                                         "لقاء المضيف بعد غياب طويل — دفء",
+                                         x=f.x, y=f.y)
 
     def _log_her_new(self, before):
         """Mirror any utterances she produced since `before` into the
         journal + transcript."""
         for u in self.tongue.utterances[before:]:
-            self.sim.journal.log(u["tick"],
-                                 "request" if u["context"] == "request" else "utterance",
+            ctx = u["context"]
+            jtype = ("request" if ctx == "request"
+                     else "dream_recount" if ctx == "dream" else "utterance")
+            self.sim.journal.log(u["tick"], jtype,
                                  u["text"], x=self.sim.fajr.x, y=self.sim.fajr.y)
             self.transcript.append({"tick": u["tick"], "day": u["day"],
                                     "time": fmt_time(u["tick"] % TICKS_PER_DAY),
@@ -106,14 +129,37 @@ class Conversation:
             if f.stats.get(stat, 0) > self._prev_stats.get(stat, 0):
                 self._last_event_tick[kind] = tick
         self._prev_stats = dict(f.stats)
+        was_asleep = self._prev_asleep
+        self._prev_asleep = f.asleep
         if f.asleep:
             return
+        # ---- dreams: name the experience, then let her recount it ----
+        if was_asleep:
+            self._dream_tick()
+        # ---- longing (Phase 4): missing the host is a real signal ----
+        # (social need high + long absence), named honestly, once a day
+        day = tick // TICKS_PER_DAY + 1
+        if (f.drives.d.get("social", 0) > 75.0
+                and tick - self._last_host_tick > TICKS_PER_DAY
+                and day != self._last_longing_day):
+            self._last_longing_day = day
+            self.sim.journal.log(tick, "longing", "تشتاق لصوت المضيف",
+                                 x=f.x, y=f.y)
         # ---- covenant at her first waking ----
         if not self.covenant_done:
             for line in self.host.covenant(self):
                 self._log_line("host", line)
             self.covenant_done = True
             return
+        # ---- kinship teaching (ADAM & EVE P1): once, ever ----
+        # The Guide teaches her the words of pair/family/new life in a
+        # deliberate covenant-like moment (abstract words anchor only in
+        # story — host.anchor_ok). After this she is marked ready; P2's
+        # spawn checks the mind flag.
+        if not self._kinship_taught:
+            from kinship import teach_kinship
+            teach_kinship(self)
+            self._kinship_taught = True
         # ---- accompanied teaching, days 1–2 ----
         if tick < ACCOMPANY_TICKS and tick - self._last_teach_tick >= EVENT_TEACH_GAP:
             self._teach_tick()
@@ -170,6 +216,52 @@ class Conversation:
                     f"word:{wid}", self.tongue.strength(wid), sim.tick)
                 self._last_teach_tick = sim.tick
                 return
+
+    # ---------------- dreams (Phase 4) ----------------
+    def _dream_tick(self):
+        """On waking: the host names a fresh dream once (teaching the word
+        'dream', anchored in her just-lived experience); on later wakings
+        she recounts vivid dreams herself — claimed as dreams, never facts."""
+        from dreams import RECOUNT_TEMPLATES, RECOUNT_WORDS
+        sim = self.sim
+        dreamer = sim.fajr.mind.dreamer
+        did = dreamer.unrecounted_id
+        if did is None:
+            return
+        dream = dreamer.get(did)
+        if dream is None:
+            dreamer.unrecounted_id = None
+            return
+        # 1) she does not have the word yet -> the host names it (once)
+        if not self.tongue.known("dream"):
+            if self.host.anchor_ok(self, "dream"):
+                line = "ذلك كان حلمًا"
+                self._log_line("host", line)
+                self.sim.journal.log(sim.tick, "teaching", line,
+                                     x=sim.fajr.x, y=sim.fajr.y)
+                self.tongue.learn("dream", sim.tick, gain=TEACH_GAIN,
+                                  anchored=True, source="teaching")
+                sim.fajr.mind.episodic.set_semantic(
+                    "word:dream", self.tongue.strength("dream"), sim.tick)
+                dream["named"] = True
+                dreamer.mark_recounted(did)
+            return
+        # 2) she knows the word -> recount the dream in her own voice,
+        #    but only with words she truly knows (grounding gate)
+        theme = dream["theme"]
+        need = RECOUNT_WORDS.get(theme, ("dream",))
+        if not all(self.tongue.known(w) for w in need):
+            dreamer.mark_recounted(did)
+            return
+        text = RECOUNT_TEMPLATES[theme]
+        claims = [{"type": "dream", "dream_id": did, "theme": theme,
+                   "sources": dream["sources"]}]
+        before = len(self.tongue.utterances)
+        self.tongue._emit(sim.tick, sim.tick // TICKS_PER_DAY + 1,
+                          "dream", text, claims, [w for w in need
+                                                 if w in self.tongue.words])
+        self._log_her_new(before)
+        dreamer.mark_recounted(did)
 
     # ---------------- requests (gate §5) ----------------
     def _remedy_exists(self, drive):
@@ -582,6 +674,7 @@ class Conversation:
                 "outbox": [dict(o) for o in self.outbox],
                 "transcript": [dict(t) for t in self.transcript],
                 "covenant_done": self.covenant_done,
+                "kinship_taught": self._kinship_taught,
                 "directive_log": [dict(d) for d in self.directive_log]}
 
     @classmethod
@@ -593,6 +686,7 @@ class Conversation:
         c.outbox = [dict(o) for o in d["outbox"]]
         c.transcript = [dict(t) for t in d["transcript"]]
         c.covenant_done = d["covenant_done"]
+        c._kinship_taught = d.get("kinship_taught", False)
         c.pending_request = None
         c._request_armed = True
         c._need_since = {}
@@ -606,4 +700,7 @@ class Conversation:
         c.last_directive = None
         c.directive_log = [dict(x) for x in d["directive_log"]]
         c._teach_cursor = 0
+        c._prev_asleep = sim.fajr.asleep   # wake detection for dreams
+        c._last_host_tick = -10 ** 9       # Phase 4: social depth
+        c._last_longing_day = 0
         return c

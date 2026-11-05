@@ -90,6 +90,12 @@ No network access is used or needed — run it air-gapped if you like.
 | `src/conversation.py`, `src/host.py` | turns with the human host |
 | `src/grounding.py` | every word bound to (sensor, drive, action); novel-word mechanism |
 | `src/honesty.py` | not-knowing, anti-confabulation, capability decline |
+| `src/building.py` | structured build projects (hut/wall schemas, exact slot placement) |
+| `src/kinship.py`, `src/adam.py` | kinship teaching; a second inhabitant, zero-knowledge mind |
+| `src/bond.py`, `src/child.py` | pair bond; conception → gestation → growth stages |
+| `src/culture.py` | cumulative culture ratchet (practice-only skills, never decay) |
+| `src/curiosity.py`, `src/novelty_live.py` | open-ended curiosity engine; live novel-word wiring |
+| `src/test_building.py`, `src/test_kinship.py`, `src/test_bond.py`, `src/test_child.py`, `src/test_culture.py`, `src/test_curiosity.py` | gates B1–B5, K1–K5, T1–T8, F1–F6, L1–L6, C1–C6 |
 | `src/voice/` | Rosenberg glottal source + Kelly–Lochbaum waveguide + gated phonemes |
 | `assets/` | real-data figures (all measurements from the actual system) |
 | `src/test_grounding.py` | 19 grounding checks |
@@ -115,10 +121,50 @@ grep -rniE "openai|anthropic|cohere|huggingface|transformers|torch|tensorflow|on
 # must print nothing
 ```
 
+## What's new — Stage 4 + multi-inhabitant world (2026-11-04)
+
+**Structured building** (`src/building.py`, gates B1–B5). She can now
+undertake build projects from authored schemas — a hut (8 slots on a
+ring) and a wall (5 slots in a line) — placing each part exactly where
+the schema says. Honest label: the schemas are authored scaffolding;
+she has no house concept. The "building" reading is the observer's.
+
+**A second inhabitant** (`src/adam.py`, `src/kinship.py`, gates K1–K5,
+A1–A5). A second being enters with zero knowledge and a simplified
+mind (drives + practice + curiosity — no episodic memory, no dreams, no
+aspirations, no language). The first inhabitant teaches it by living
+alongside it: skills transfer by demonstration, with a small loss. The
+guide teaches the first inhabitant kinship concepts; she teaches the
+second.
+
+**Pair bond and offspring** (`src/bond.py`, `src/child.py`, gates
+T1–T8, F1–F6). When two inhabitants repeatedly choose closeness, a bond
+forms and conception can follow — a fixed gestation, then a child born
+with zero knowledge. Growth stages: infant (0–30 days) → child (30–120,
+learns 2×) → adult. The choice is theirs: no bond threshold in the code
+spawns a child; conception requires hundreds of mutually chosen union
+ticks. Offspring inherit nothing but a body — every skill must be lived
+and taught.
+
+**Cumulative culture** (`src/culture.py`, gates L1–L6). Skills rise only
+by lived practice (asymptotic: 1 − e^(−practice/400)) and never decay —
+a ratchet, not a ladder. Discoveries become tribal knowledge and are
+never lost.
+
+**Open-ended development** (`src/curiosity.py`, `src/novelty_live.py`,
+gates C1–C6). No authored tech tree: the engine defines how things
+interact (world physics) and rewards untried action×object×context
+combinations on idle ticks. Eras are named *after* they emerge. What
+gets discovered is unpredictable by definition — the honest ceiling of
+this design.
+
 ## Status
 
 Phase 1 (technical maturity) complete 2026-10-31 — see
-`ROADMAP-TO-WORLD.md`. External code review in progress. Paper
+`ROADMAP-TO-WORLD.md`. Stage 4 (structured building) and the
+multi-inhabitant modules (kinship, pair bond, child lifecycle,
+cumulative culture, curiosity engine) complete 2026-11-04 — all 15
+test suites green. External code review in progress. Paper
 unsubmitted.
 
 ## License

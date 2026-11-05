@@ -71,9 +71,9 @@ These are not asserted, and must not be read into the work:
 
 - **No consciousness claim.** Butlin's 14 indicators were used as
   an engineering checklist — measured **5 MET / 9 PARTIAL / 0 NOT-MET**
-  (batteries v3+v4); the pre-measurement design estimate was 11 fully
-  + 3 partially implementable;
-  the indicators do not prove consciousness, per the authors.
+  (batteries v3+v4, see `PHASE3/BUTLIN-14-MAPPING.md`); the pre-measurement
+  design estimate was 11 fully + 3 partially implementable.
+  The indicators do not prove consciousness, per the authors.
 - **No biological-life claim.** She is a mechanistic system: code,
   waveguides, journals. "Cells" in proof images are tract sections
   and model components, honestly titled.

@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+*.pyo
+voice_state/
+honesty_probes.json
+novel_timeline.json
+.DS_Store

@@ -36,3 +36,12 @@ DRINK_RELIEF = 55.0
 SWIM_SLOW_FACTOR = 0.30      # movement factor in the deep channel (swimming);
                              # the shallows keep WATER_SLOW_FACTOR (wading)
 BATHE_TICKS = 25             # duration of a deliberate bath, in ticks
+
+# --- swimming skill (expansion 2026-11-01) ---
+# Skill is DERIVED from lifetime swim_ticks (persisted in stats): no new
+# state, no migration, past swims count. Asymptotic: 1 - exp(-ticks/TAU).
+SWIM_SKILL_TAU = 400.0       # swim_ticks for skill to reach ~63%
+SWIM_SLOW_SKILLED = 0.80     # deep-water slow factor at full skill (from 0.30)
+SWIM_COST_RELIEF = 0.5       # fraction of swim energy cost removed at skill=1
+                             # (W5 cost asymmetry ratio hunger:thirst is preserved
+                             #  at all skill levels — only magnitude scales)

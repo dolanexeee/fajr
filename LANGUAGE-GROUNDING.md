@@ -88,3 +88,19 @@ life: her valley currently contains no novel stimuli, and wiring live
 perceptual novelty into the tracker (plus deciding when a coined label
 enters her permanent lexicon) is a separate step needing Mustafa's
 word. The mechanism exists; its first live use awaits a real novelty.
+
+## Live wiring — DONE 2026-10-31 (additive)
+`src/novelty_live.py` (new) + 4 additive spots in `src/mind.py`:
+- every tick, `mind.cycle` feeds each actually-sensed scene object to
+  the proven `NoveltyTracker` (known kinds return at once — read-only)
+- on crystallization: label coined by the proven mechanism, promoted
+  into `lexicon.WORDS` as `novel_<label>` (anchor `object:novel:<kind>`,
+  provenance `novel-live`), registered in `GROUNDING` as grounded, and
+  a `novel_word` journal event with full provenance (pattern,
+  exposures, tick)
+- tracker state rides the checkpoint (`mind.to_dict`/`from_dict`);
+  old checkpoints load with a fresh dormant tracker
+- verified: test_grounding 17/17, test_honesty 15/15 (both unmodified);
+  600 live ticks -> 0 concepts, 0 labels, 0 journal events (dormant);
+  deterministic journals; novel-kind drill -> 'bibi' coined + promoted
+- proof: `proof-34-novelty-live.png` (34 images total)

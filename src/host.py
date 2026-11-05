@@ -22,7 +22,7 @@ CURRICULUM = ["fajr", "host", "tree", "fruit", "water", "river",
               "shelter", "thicket", "hungry", "thirsty", "sleepy",
               "dirty", "eat", "drink", "want", "know"]
 
-FEM = {"tree", "fruit", "pile", "forest"}
+FEM = {"tree", "fruit", "pile", "forest", "family"}
 HILL_POS = (208.0, 42.0)
 
 
@@ -68,6 +68,11 @@ class Host:
             return True
         if anchor.startswith("abstract:"):
             return False
+        if anchor == "meta:dream":
+            # honest anchor: she dreamed last night — the referent is her
+            # fresh dream experience, recorded in the dream store
+            dreamer = getattr(getattr(sim.fajr, "mind", None), "dreamer", None)
+            return dreamer is not None and dreamer.unrecounted_id is not None
         if anchor.startswith("object:"):
             kind = anchor.split(":", 1)[1]
             if kind == "water":

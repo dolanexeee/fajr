@@ -30,6 +30,14 @@ WORDS = {
     "host":      {"ar": "المضيف", "pos": "noun", "anchor": "person:host"},
     "guardians": {"ar": "الحراس", "pos": "noun", "anchor": "abstract:guardians"},
     "outside":   {"ar": "خارج", "pos": "noun", "anchor": "abstract:outside"},
+    # ---- kinship concepts (ADAM & EVE P1: taught-only, like guardians) ----
+    "pair":      {"ar": "زوج", "pos": "noun", "anchor": "abstract:kinship"},
+    "family":    {"ar": "عائلة", "pos": "noun", "anchor": "abstract:kinship"},
+    "newlife":   {"ar": "حياة جديدة", "pos": "noun", "anchor": "abstract:kinship"},
+    # ---- maker concepts (2026-11-04, his order: Guide introduces Mustafa;
+    #      taught-only like kinship words — the Guide names, she learns) ----
+    "maker":     {"ar": "صانع", "pos": "noun", "anchor": "abstract:maker"},
+    "mustafa":   {"ar": "مصطفى", "pos": "noun", "anchor": "abstract:maker"},
     # ---- perceivable objects & places ----
     "tree":      {"ar": "شجرة", "pos": "noun", "anchor": "object:tree"},
     "fruit":     {"ar": "فاكهة", "pos": "noun", "anchor": "object:fruit"},
@@ -87,6 +95,8 @@ WORDS = {
                  "pres1": "أتذكر", "past1": "تذكرت", "impf": None, "pres2f": "تتذكرين"},
     "think":    {"ar": "ظن", "pos": "verb", "anchor": "meta:think",
                  "pres1": "أظن", "past1": "ظننت", "impf": None, "pres2f": "تظنين"},
+    "dream":    {"ar": "حلم", "pos": "verb", "anchor": "meta:dream",
+                 "pres1": "أحلم", "past1": "حلمت", "impf": None, "pres2f": "تحلمين"},
     # ---- quantity / time ----
     "much":      {"ar": "كثيرة", "pos": "quant", "anchor": "quant:much", "masc": "كثير"},
     "little":    {"ar": "قليلة", "pos": "quant", "anchor": "quant:little", "masc": "قليل"},

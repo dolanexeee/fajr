@@ -293,8 +293,9 @@ process failure, recorded so it is not repeated.
    original language path. Wiring them in is the owner's decision.
 4. **One valley, one speaker.** No generality claim: small lexicon,
    one environment, no social learning beyond the host.
-5. **No consciousness claim.** Butlin et al.'s 14 indicators: 11 fully
-   + 3 partially implementable as an engineering checklist. Per the
+5. **No consciousness claim.** Butlin et al.'s 14 indicators: measured
+   5 MET / 9 PARTIAL / 0 NOT-MET as an engineering checklist (pre-measurement
+   design estimate: 11 fully + 3 partially implementable). Per the
    authors, indicators do not prove consciousness; we repeat that here
    and claim nothing beyond the mechanisms.
 

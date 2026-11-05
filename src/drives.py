@@ -9,12 +9,23 @@ They are NOT physiology; they are declared formulas, measured as-is
 """
 import math
 
-DRIVES = ["hunger", "thirst", "sleep", "safety", "curiosity", "comfort", "social", "creation"]
+DRIVES = ["hunger", "thirst", "sleep", "safety", "curiosity", "comfort", "social", "creation",
+          # ADAM & EVE P3: the family drive — the need for union. Physics
+          # from us (it exists, it rises, union relieves it); the DECISION
+          # to seek union is theirs, via normal intent scoring.
+          "family"]
 
 # valence weights (contribution of each drive's satisfaction to momentary valence)
+# P3: family takes weight; the rest renormalised so the sum stays 1.0.
+# P4-fix (2026-11-04): family 0.05 -> 0.13. At 0.05 the drive was VOICELESS:
+# max urgency 5.0 vs vitals at 17 — the union choice could never fire
+# through normal scoring (25 live days, union_ticks = 0). At 0.13 the
+# family drive speaks at near-vital volume: family 95 outranks vitals at
+# ~70, emergencies still win. Valence now aches with loneliness — honest.
 WEIGHTS = {
-    "hunger": 0.18, "thirst": 0.18, "sleep": 0.16, "safety": 0.18,
-    "comfort": 0.12, "curiosity": 0.07, "social": 0.06, "creation": 0.05,
+    "hunger": 0.1566, "thirst": 0.1566, "sleep": 0.1392, "safety": 0.1566,
+    "comfort": 0.1044, "curiosity": 0.0609, "social": 0.0522, "creation": 0.0435,
+    "family": 0.13,
 }
 
 # viable bands used by GATE G1 (vital drives only)
@@ -161,6 +172,13 @@ class Drives:
             d["social"] += 0.045
         # creation: the making-itch
         d["creation"] += 0.026
+        # family (ADAM & EVE P3): the need for union. Rises slowly on its
+        # own, faster with bond + maturity (bond makes the need salient —
+        # the binding design: bond feeds this drive). Relieved by union
+        # acts (handled in sim._pair_tick, not here).
+        bond = ctx.get("bond", 0.0)
+        mature = ctx.get("mature", 1.0)
+        d["family"] += 0.008 + 0.030 * bond * mature
         for k in DRIVES:
             d[k] = max(0.0, min(100.0, d[k]))
 
@@ -172,9 +190,10 @@ class Drives:
     @classmethod
     def from_dict(cls, dd):
         o = cls.__new__(cls)
-        # checkpoints written before v3 carry the bare drive dict
+        # checkpoints written before v3 carry the bare drive dict;
+        # checkpoints written before P3 lack "family" -> default 20.0
         vals = dd.get("drives", dd)
-        o.d = {k: float(vals[k]) for k in DRIVES}
+        o.d = {k: float(vals.get(k, 20.0)) for k in DRIVES}
         o.phase_tod = float(dd.get("phase_tod", 0.0))
         o._prev_light = float(dd.get("prev_light", 0.0))
         return o

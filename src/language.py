@@ -27,7 +27,7 @@ USE_GAIN = 0.25
 DECAY_PER_TICK = 0.00012
 KNOW_THRESHOLD = 0.5
 
-FEM_NOUNS = {"tree", "fruit", "pile", "forest"}
+FEM_NOUNS = {"tree", "fruit", "pile", "forest", "family"}
 
 DRIVE_STATE_WORDS = {     # drive -> (high-state word, low-state word)
     "hunger": ("hungry", "satiated"),

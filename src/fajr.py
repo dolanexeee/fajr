@@ -12,6 +12,7 @@ import math
 
 from config import (GRID_W, GRID_H, CELL, WALK_SPEED, WATER_SLOW_FACTOR,
                     SWIM_SLOW_FACTOR, BATHE_TICKS,
+                    SWIM_SKILL_TAU, SWIM_SLOW_SKILLED, SWIM_COST_RELIEF,
                     EAT_TICKS_PER_FRUIT, FRUIT_SATIATION, DRINK_RELIEF,
                     SHELTER_POS, LANTERN_POS, BUILD_SITE, SOCIAL_RADIUS)
 from drives import Drives
@@ -76,7 +77,13 @@ class Fajr:
         self.stats = {"distance": 0.0, "eats": 0, "drinks": 0, "pricks": 0,
                       "cold_shocks": 0, "gathers": 0, "places": 0, "sleeps": 0,
                       "wasted_arrivals": 0,
-                      "bathes": 0, "swims": 0, "swim_ticks": 0}
+                      "bathes": 0, "swims": 0, "swim_ticks": 0,
+                      "unions": 0}
+        # ADAM & EVE P5: lived-practice counters per skill. Level is a PURE
+        # function of these (skill_level) — the only way up, no decay.
+        self.practice = {"forage": 0, "swim": 0, "build": 0}
+        # P6: seeds carried (from eaten fruit) — plantable
+        self.seeds = 0
         self.sleep_episodes = []               # (start_tick, x, y)
         self.hunger_onset = None               # tick when hunger crossed 60
         self.hunger_latencies = []             # (day, latency_ticks)
@@ -98,6 +105,29 @@ class Fajr:
         """How dirty he is, 0 (clean) .. 100 (filthy) — the deficit side
         of the cleanliness state (Stage 2, WATER-GATE)."""
         return 100.0 - self.cleanliness
+
+    def skill_level(self, name):
+        """P5: skill level 0..1, pure function of lived practice —
+        same curve as her swim 1.0 and his forage curve."""
+        return 1.0 - math.exp(-max(0.0, self.practice.get(name, 0)) / 400.0)
+
+    def swim_skill(self):
+        """Swimming skill in [0, 1], DERIVED from lifetime swim_ticks
+        (persisted in stats — no new state, no migration; her past swims
+        count toward it). Asymptotic learning: 1 - exp(-ticks/TAU), so
+        early swims teach the most and skill never exceeds 1."""
+        return 1.0 - math.exp(-self.stats["swim_ticks"] / SWIM_SKILL_TAU)
+
+    def swim_slow_factor(self):
+        """Deep-water movement factor: SWIM_SLOW_FACTOR (0.30) at skill 0,
+        rising linearly to SWIM_SLOW_SKILLED (0.80) at skill 1."""
+        return SWIM_SLOW_FACTOR + self.swim_skill() * (SWIM_SLOW_SKILLED - SWIM_SLOW_FACTOR)
+
+    def swim_cost_relief(self):
+        """Fraction of swim energy cost remaining: 1.0 at skill 0 down to
+        (1 - SWIM_COST_RELIEF) at skill 1. The W5 hunger:thirst asymmetry
+        ratio is preserved — only magnitude scales."""
+        return 1.0 - SWIM_COST_RELIEF * self.swim_skill()
 
     def fear_at(self, x, y, world):
         """Highest relevant learned fear for a location."""
@@ -318,6 +348,7 @@ class Fajr:
             events["near_hazard"] = True
             self._deep_stint += 1
             self.stats["swim_ticks"] += 1
+            self.practice["swim"] += 1    # P5: lived practice
             if not self.in_deep:
                 self.in_deep = True
                 events["cold_shock"] = True
@@ -396,8 +427,11 @@ class Fajr:
         # swimming is work: the channel costs energy and water beyond
         # the base metabolic rates (the measured W5 cost asymmetry)
         if zone == "deep" and not self.asleep:
-            d["hunger"] += 0.055
-            d["thirst"] += 0.022
+            # skill relieves the cost (never below half); the measured W5
+            # hunger:thirst asymmetry ratio is preserved at every level.
+            relief = self.swim_cost_relief()
+            d["hunger"] += 0.055 * relief
+            d["thirst"] += 0.022 * relief
 
         # --- the mind's cycle (Phase 2): perception -> beliefs -> workspace
         # -> decision. Runs before the sleep/act branches so consolidation
@@ -434,6 +468,8 @@ class Fajr:
                             d["hunger"] -= FRUIT_SATIATION
                             self.stats["eats"] += 1
                             events["ate"] = True
+                            # P6: every fruit carries a seed
+                            self.seeds = min(6, getattr(self, "seeds", 0) + 1)
                             self._learn_outcome(pile.x, pile.y, 1.0)
                             if self.hunger_onset is not None:
                                 self.hunger_latencies.append((self.hunger_onset[0], tick - self.hunger_onset[1]))
@@ -451,6 +487,8 @@ class Fajr:
                         d["hunger"] -= FRUIT_SATIATION
                         self.stats["eats"] += 1
                         events["ate"] = True
+                        # P6: every fruit carries a seed
+                        self.seeds = min(6, getattr(self, "seeds", 0) + 1)
                         self._learn_outcome(tree.x, tree.y, 1.0)
                         self.food_memory[target_id] = [tree.x, tree.y, tree.fruit, tick]
                         if self.hunger_onset is not None:
@@ -545,7 +583,7 @@ class Fajr:
         if dist > arrival:
             # depth-zoned water movement (Stage 2): the deep channel is
             # swum (slowest, costliest), the shallows waded
-            speed = WALK_SPEED * (SWIM_SLOW_FACTOR if is_deep_water(self.x, self.y)
+            speed = WALK_SPEED * (self.swim_slow_factor() if is_deep_water(self.x, self.y)
                                   else (WATER_SLOW_FACTOR if percept.in_water else 1.0))
             step = min(speed, dist)
             ux, uy = (tx - self.x) / dist, (ty - self.y) / dist
@@ -593,6 +631,9 @@ class Fajr:
                 if pile is not None and pile.fruit > 0:
                     self.acting = ("eat", EAT_TICKS_PER_FRUIT, payload)
                 else:
+                    if self.mind is not None and pile is not None:
+                        self.mind.note_obstacle("eat", tick, pile.x, pile.y,
+                                                journal)
                     self.intent = None
             elif payload == -1:
                 # position-only food target (an episode's place): eat what
@@ -621,6 +662,11 @@ class Fajr:
                         self.mind.monitor.verify(f"tree:{payload}", 0, tick)
                     self.food_memory[payload] = [tree.x, tree.y, 0, tick]
                     self.stats["wasted_arrivals"] = self.stats.get("wasted_arrivals", 0) + 1
+                    # obstacle memory (Phase 4): she went, found nothing —
+                    # remembered. Twice in 3 days teaches her to look away.
+                    if self.mind is not None:
+                        self.mind.note_obstacle("eat", tick, tree.x, tree.y,
+                                                journal)
                     self.intent = None
         elif kind == "drink":
             if dist_to_river(self.x, self.y) < 6.5:
@@ -643,6 +689,7 @@ class Fajr:
                     world.materials.remove(m)
                     self.carry.append(m.kind)
                     self.stats["gathers"] += 1
+                    self.practice["forage"] += 1    # P5: lived practice
                     events["gathered"] = True
                     self.cleanliness = max(0.0, self.cleanliness - 1.2)  # work dirt (Stage 2)
                     d["creation"] -= 6.0
@@ -652,14 +699,58 @@ class Fajr:
         elif kind == "place":
             if self.carry:
                 kind_item = self.carry.pop()
-                world.structures.append({"kind": kind_item, "x": BUILD_SITE[0] + (len(world.structures) % 5) * 1.6,
-                                         "y": BUILD_SITE[1] + (len(world.structures) // 5) * 1.6})
+                # Phase 4: she builds WHERE the intent points — usually the
+                # usual site, sometimes her own chosen spot (creativity).
+                # Structures cluster around the chosen base.
+                base_x, base_y = tx, ty
+                if payload == -2:
+                    # Stage 4 structured-build slot: place EXACTLY on the
+                    # project's slot — no grid jitter, the pattern survives.
+                    px, py = base_x, base_y
+                else:
+                    near = sum(1 for s in world.structures
+                               if math.hypot(s["x"] - base_x, s["y"] - base_y) < 12.0)
+                    px, py = (base_x + (near % 5) * 1.6,
+                              base_y + (near // 5) * 1.6)
+                world.structures.append({"kind": kind_item, "x": px, "y": py})
                 self.stats["places"] += 1
+                self.practice["build"] += 1    # P5: lived practice
                 events["placed"] = True
                 self.cleanliness = max(0.0, self.cleanliness - 0.8)  # work dirt (Stage 2)
                 d["creation"] -= 30.0
                 self._learn_outcome(self.x, self.y, 0.7)
                 journal.log(tick, "place", f"وضع {kind_item} في بنائه", x=self.x, y=self.y)
+            self.intent = None
+        elif kind == "plant":
+            # P6: body capability (no mind scoring yet — she may imitate it)
+            from world import Crop
+            if getattr(self, "seeds", 0) > 0 and is_passable(self.x, self.y):
+                world.crops.append(Crop(len(world.crops), self.x, self.y,
+                                        planter="fajr"))
+                self.seeds -= 1
+            self.intent = None
+        elif kind == "water":
+            # P6: body capability
+            for c in world.crops:
+                if math.hypot(c.x - self.x, c.y - self.y) < 5.0 \
+                        and c.stage != "mature":
+                    c.water = min(100.0, c.water + 50.0)
+                    break
+            self.intent = None
+        elif kind == "harvest":
+            # P6: body capability
+            for c in world.crops:
+                if math.hypot(c.x - self.x, c.y - self.y) < 3.0 \
+                        and c.stage == "mature" and c.fruit > 0:
+                    n = c.fruit
+                    c.fruit = 0
+                    c.regrow = 0
+                    d["hunger"] = max(0.0, d["hunger"] - FRUIT_SATIATION * n)
+                    self.stats["eats"] += n
+                    self.seeds = min(6, getattr(self, "seeds", 0) + n)
+                    events["ate"] = True
+                    journal.log(tick, "harvest", "حصد من زرعه", x=self.x, y=self.y)
+                    break
             self.intent = None
         else:
             # seek/explore/social/shelter/flee/wander: arrival ends the intent
@@ -691,6 +782,10 @@ class Fajr:
             "last_cell": list(self.last_cell),
             "stuck": self.stuck,
             "stats": dict(self.stats),
+            # P5: lived-practice counters (the only source of skill level)
+            "practice": dict(self.practice),
+            # P6: seeds carried
+            "seeds": self.seeds,
             "sleep_episodes": [list(e) for e in self.sleep_episodes],
             "hunger_onset": list(self.hunger_onset) if self.hunger_onset else None,
             "hunger_latencies": [list(e) for e in self.hunger_latencies],
@@ -723,6 +818,17 @@ class Fajr:
         f.last_cell = tuple(dd["last_cell"])
         f.stuck = dd["stuck"]
         f.stats = dict(dd["stats"])
+        # P5: practice counters; checkpoints that predate P5 seed them
+        # from the real lived-history stats (her past counts toward it)
+        pr = dd.get("practice")
+        if pr:
+            f.practice = {k: int(pr.get(k, 0)) for k in ("forage", "swim", "build")}
+        else:
+            f.practice = {"forage": int(f.stats.get("gathers", 0)),
+                          "swim": int(f.stats.get("swim_ticks", 0)),
+                          "build": int(f.stats.get("places", 0))}
+        # P6: seeds; old checkpoints start at 0
+        f.seeds = int(dd.get("seeds", 0))
         f.sleep_episodes = [tuple(e) for e in dd["sleep_episodes"]]
         f.hunger_onset = tuple(dd["hunger_onset"]) if dd["hunger_onset"] else None
         f.hunger_latencies = [tuple(e) for e in dd["hunger_latencies"]]

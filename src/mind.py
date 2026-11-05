@@ -27,12 +27,18 @@ from episodic import EpisodicMemory
 from fwdmodel import ForwardModel, context_key
 from monitor import Monitor
 from perception import Perception, object_key
+from novelty_live import LiveNovelty
+from dreams import DreamWeaver
+from aspirations import AspirationEngine
+from building import BuildProject, SCHEMA_AR
 from selfmodel import SelfModel
 from workspace import Workspace, Coalition, MODULES, schema_features
 from config import SHELTER_POS, LANTERN_POS, BUILD_SITE
 from world import river_center_x, bath_spot
 
 VITAL = ("hunger", "thirst", "sleep", "safety")
+
+MOOD_LR = 0.0003       # mood EMA rate: ~3-day time constant (Phase 4)
 
 
 class Affect:
@@ -63,6 +69,15 @@ class Mind:
         self.selfmodel = SelfModel()
         self.workspace = Workspace()
         self.affect = Affect()
+        # live novelty wiring (additive): the proven NoveltyTracker watches
+        # her perceptual stream; dormant until a novel kind appears
+        self.novelty_live = LiveNovelty()
+        # dreams (additive, Phase 4): sleep-onset recombination of episodes;
+        # a separate store — NEVER episodic memory (honesty charter)
+        self.dreamer = DreamWeaver()
+        # aspirations (additive, Phase 4): self-chosen goals grown from
+        # dream themes; they bias intent scoring, never command
+        self.aspirations = AspirationEngine()
         self.steers = True            # False -> Phase-1 arbitration (lesions)
         self.active = True            # False -> mind entirely off (master lesion)
         self.routing_enabled = True   # v4-3: workspace-winner decision routing
@@ -81,6 +96,24 @@ class Mind:
         self._tree_obs = {}           # oid -> [fruit_seen, obs]
         self._endurance_pending = []  # [dist, pressure, prediction]
         self._last_sleep_count = 0
+        self.mood = 0.0            # Phase 4: slow wellbeing baseline [-1, 1]
+        self._mood_band = 0        # -1 | 0 | 1 (journaled on crossings)
+        self._build_sites = []     # Phase 4: (x, y, valence) beloved build
+                                   # spots — her waking creativity palette
+        self._build_project = None  # Stage 4: live structured-build project
+        self._projects_done = 0     # Stage 4: completed structured builds
+        self._kinship_ready = False  # ADAM & EVE P1: Guide taught her
+                                     # pair/family/newlife — P2 spawn checks this
+        self._last_story_day = 0   # Phase 4: self-story rhythm
+        self._last_plan_tick = -10 ** 9  # Phase 4: plan visibility throttle
+        self._last_dawn_day = 0    # Phase 4: dawn ritual rhythm
+        self._last_evening_day = 0  # Phase 4: evening ritual rhythm
+        self._obstacles = {}       # Phase 4: kind -> [(tick, x, y)] recent
+                                   # failures; she learns, then adjusts
+        self._obstacle_day = {}    # kind -> day the lesson was journaled
+        self._last_content_day = 0  # Phase 4: contentment rhythm
+        self._last_reverie_tick = -10 ** 9  # Phase 4: reverie throttle
+        self._reverie_seen = set()  # episode ticks already revisited
         self.metrics = {
             "cycles": 0, "task_cycles": 0,
             "fm_participated": 0, "decisions": 0,
@@ -131,6 +164,12 @@ class Mind:
         scene = self.perception.build(raw, f, world, tick, light, weather,
                                       rng, self.beliefs, self.fwd,
                                       harness_truth=truth)
+
+        # ---------- live novelty (additive, read-only over the scene) ----
+        # Every sensed object is offered to the proven NoveltyTracker.
+        # All valley kinds are known -> observe() returns at once, the
+        # tracker stays dormant, nothing else in this cycle changes.
+        self.novelty_live.feed(scene, tick, journal, f.x, f.y)
 
         # ---------- monitor ----------
         pred_err_by_key = {}
@@ -203,10 +242,30 @@ class Mind:
                           for o in scene.objects.values())
         self.affect.update(f.drives, scene.pred_error_self_discounted, near_hazard)
 
+        # ---------- mood (Phase 4): slow baseline of wellbeing ----------
+        # An EMA of valence over ~3 days. Colors her nights (dream
+        # vividness) and her ambitions (aspiration birth). A resultant,
+        # never imposed — like valence itself.
+        self.mood += MOOD_LR * ((self.affect.valence * 2.0 - 1.0) - self.mood)
+        self.mood = max(-1.0, min(1.0, self.mood))
+        band = 1 if self.mood >= 0.4 else (-1 if self.mood <= -0.4 else 0)
+        if band != self._mood_band:
+            self._mood_band = band
+            if band == 1:
+                journal.log(tick, "mood", "مزاجها مشرق هذه الأيام",
+                            x=f.x, y=f.y)
+            elif band == -1:
+                journal.log(tick, "mood", "مزاجها معكر هذه الأيام",
+                            x=f.x, y=f.y)
+
         # ---------- self-model upkeep ----------
         # relief is FELT at once: eating, drinking and waking force an
         # immediate interoceptive sample, not the next hourly one
         force = bool(ev.get("ate") or ev.get("drank")) or (self._was_asleep and not f.asleep)
+        # dawn ritual (Phase 4): the wake crossing is detected here,
+        # BEFORE _was_asleep is updated — her day's own greeting
+        if self._was_asleep and not f.asleep:
+            self._dawn_ritual(f, tick, journal)
         self._was_asleep = f.asleep
         self.selfmodel.sample(f.drives.d, tick, rng, asleep=f.asleep, force=force)
         # felt extremes are veridical anchors (declared mechanism) —
@@ -235,9 +294,31 @@ class Mind:
                     self.episodic.set_semantic(f"tree:{oid}:fruit_rate", seen / obs, tick)
             journal.log(tick, "consolidation",
                         f"رسّخ {n_new} ذكرى أثناء النوم", x=f.x, y=f.y)
+            # evening ritual (Phase 4): her farewell to the day, colored
+            # by her mood — the bookend to her dawn greeting
+            self._evening_ritual(f, tick, journal)
+            # dreams (Phase 4): weave AFTER consolidation, from the same
+            # episodes — the dream store is separate from episodic memory.
+            # Her mood colors the night.
+            dream = self.dreamer.weave(self.episodic, tick, rng, mood=self.mood)
+            if dream is not None:
+                journal.log(tick, "dream", dream["journal_text"],
+                            x=f.x, y=f.y)
 
         # ---------- episodic recording ----------
         self._record_events(f, scene, tick, ev, weather, journal)
+
+        # ---------- aspirations (Phase 4): birth/fulfill/decay her ----------
+        # self-chosen goals every tick; the bias applies in _decide below.
+        # Good mood lowers the birth bar.
+        self.aspirations.update(self.dreamer, f, tick, journal, mood=self.mood)
+
+        # ---------- self-story (Phase 4): who am I, every 7 days ----------
+        self._self_story(f, tick, journal)
+
+        # ---------- reverie (Phase 4): idle moments revisit strong ----------
+        # memories — real episodes, claimed as memories, at most daily
+        self._reverie(f, tick, journal, rng)
 
         if f.asleep:
             self.chosen_intent = None
@@ -301,8 +382,41 @@ class Mind:
             self.metrics["task_cycles"] += 1
 
         # ---------- decision (stage 2) ----------
-        intent = self._decide(f, world, scene, winners, need, tick, light)
+        intent = self._decide(f, world, scene, winners, need, tick, light, rng)
         self.chosen_intent = intent
+        # plan visibility (Phase 4): the gather->build chain IS multi-step
+        # planning — name it when it starts so her biography shows intention
+        if (intent and intent[0] == "gather" and not f.carry
+                and f.drives.d.get("creation", 0) > 48.0
+                and tick - self._last_plan_tick > 720):
+            self._last_plan_tick = tick
+            journal.log(tick, "plan", "تخطط: تجمع ثم تبني", x=f.x, y=f.y)
+        # structured building (Stage 4): starting a project is her choice
+        # (creation-gated); the slot pattern itself is authored scaffolding.
+        if self._build_project is None \
+                and f.drives.d.get("creation", 0) > 65.0 \
+                and rng.uniform() < 0.5:
+            cx, cy = BUILD_SITE
+            alt = [s for s in self._build_sites
+                   if math.hypot(s[0] - BUILD_SITE[0],
+                                  s[1] - BUILD_SITE[1]) > 5.0]
+            if alt:
+                alt.sort(key=lambda s: -s[2])
+                cx, cy = alt[0][0], alt[0][1]
+            schema = "hut" if self._projects_done % 2 == 0 else "wall"
+            self._build_project = BuildProject(schema, cx, cy, tick,
+                                              tick // 1440)
+            journal.log(tick, "project_start",
+                        f"بدأت بناءً مرتبًا ({SCHEMA_AR[schema]})",
+                        x=f.x, y=f.y)
+        # steer a live project's place intents onto the next exact slot
+        proj = self._build_project
+        if proj is not None and proj.live and intent \
+                and intent[0] == "place":
+            slot = proj.next_slot()
+            if slot is not None:
+                intent = ("place", slot[0], slot[1], -2)
+                self.chosen_intent = intent
         # forward-model expectation for the chosen course of action
         tod = tick % 1440
         key = context_key(intent[0] if intent else "idle", tod, weather,
@@ -319,6 +433,137 @@ class Mind:
             "distractor_novelty": distract, "goal_active": goal_active,
             "hour_frac": (tod / 1440.0), "prev_winner": winner_src})
         self.metrics["cycles"] += 1
+
+    # ------------------------------------------------------------------
+    # self-story (Phase 4): "who am I" — a periodic autobiography woven
+    # from her strongest episodes. Not a memory, not a claim: the
+    # biographer's summary of a life, journaled for her story to own.
+    # ------------------------------------------------------------------
+    STORY_FRAGMENTS = {
+        "eat": "آكل من أشجار الوادي", "drink": "أشرب من النهر",
+        "swim": "أسبح في النهر", "bathe": "أستحم بماء النهر",
+        "place": "أبني بيدي", "gather": "أجمع ما أجده",
+        "sleep": "أنام في مأواي", "shelter_rest": "أرتاح في مأواي",
+        "prick": "تعلمت أن الشوك يؤلم", "storm": "رأيت عواصف",
+        "surprise": "تفاجأت وتعلمت", "first_visit": "اكتشفت أماكن جديدة",
+        "cold_shock": "تحملت برودة الماء", "met_host": "التقيت بالمضيف",
+    }
+
+    def _self_story(self, f, tick, journal):
+        day = tick // 1440 + 1
+        if day - self._last_story_day < 7:
+            return
+        self._last_story_day = day
+        eps = sorted(self.episodic.episodes,
+                     key=lambda e: e["strength"] * (0.5 + abs(e["outcome"])),
+                     reverse=True)[:40]
+        kinds = []
+        for e in eps:
+            k = e["kind"]
+            if k in self.STORY_FRAGMENTS and k not in kinds:
+                kinds.append(k)
+            if len(kinds) >= 3:
+                break
+        if not kinds:
+            return
+        frags = "، ".join(self.STORY_FRAGMENTS[k] for k in kinds)
+        journal.log(tick, "self_story",
+                    f"قصة حياتها: أنا فجر. أعيش في الوادي منذ {day} يومًا. {frags}.",
+                    x=f.x, y=f.y)
+
+    # ------------------------------------------------------------------
+    # rituals (Phase 4): the day's own rhythm — a dawn greeting and an
+    # evening farewell, hers alone. Recurring, named, never imposed:
+    # they fire on the real wake/sleep events of her body.
+    # ------------------------------------------------------------------
+    def _dawn_ritual(self, f, tick, journal):
+        # her greeting to the day — at the dawn river, like her
+        # canonical self: barefoot, water on the face. Once per day.
+        day = tick // 1440 + 1
+        if day <= self._last_dawn_day:
+            return
+        self._last_dawn_day = day
+        journal.log(tick, "ritual_dawn",
+                    "تستقبل الفجر — تمددت وغسلت وجهها بماء النهر",
+                    x=f.x, y=f.y)
+
+    def _evening_ritual(self, f, tick, journal):
+        # called once per sleep onset (the crossing is detected in cycle)
+        day = tick // 1440 + 1
+        if day <= self._last_evening_day:
+            return
+        self._last_evening_day = day
+        if self.mood > 0.2:
+            text = "تودع النهار — تنام راضية عن يومها"
+        else:
+            text = "تودع النهار وتستقر"
+        journal.log(tick, "ritual_evening", text, x=f.x, y=f.y)
+
+    # ------------------------------------------------------------------
+    # obstacle memory (Phase 4): try → fail → remember → adjust.
+    # A failure is recorded with where and when; two failures of the
+    # same kind within 3 days teach a lesson (journaled once) and
+    # deprioritize that kind in _decide until the memory decays.
+    # Survival still preempts: the bias never overrides crit_kinds.
+    # ------------------------------------------------------------------
+    OBSTACLE_WINDOW = 4320  # 3 days in ticks
+    OBSTACLE_KIND_AR = {"eat": "الأكل", "gather": "الجمع", "drink": "الشرب"}
+
+    def note_obstacle(self, kind, tick, x, y, journal):
+        lst = self._obstacles.get(kind, [])
+        lst = [(t, ox, oy) for t, ox, oy in lst
+               if tick - t < self.OBSTACLE_WINDOW]
+        lst.append((tick, x, y))
+        self._obstacles[kind] = lst
+        if len(lst) == 2:
+            day = tick // 1440 + 1
+            ar = self.OBSTACLE_KIND_AR.get(kind, kind)
+            journal.log(tick, "obstacle_learn",
+                        f"تعلمت: {ar} يخيب هناك — ستبحث في مكان آخر",
+                        x=x, y=y)
+            self._obstacle_day[kind] = day
+            # frustration: the honest name for repeated failure
+            journal.log(tick, "frustration",
+                        f"محبطة: {ar} لا ينجح",
+                        x=x, y=y)
+            self.mood = max(-1.0, self.mood - 0.05)
+
+    def _obstacle_bias(self, kind, tick):
+        lst = self._obstacles.get(kind)
+        if not lst:
+            return 1.0
+        recent = [t for t, _, _ in lst if tick - t < self.OBSTACLE_WINDOW]
+        return 0.5 if len(recent) >= 2 else 1.0
+
+    # ------------------------------------------------------------------
+    # reverie (Phase 4): in idle moments with quiet drives she revisits
+    # a strong episode — a real memory, claimed as memory. Revisiting
+    # strengthens it (reconsolidation), at most once a day.
+    # ------------------------------------------------------------------
+    def _reverie(self, f, tick, journal, rng):
+        if f.asleep or tick - self._last_reverie_tick < 1440:
+            return
+        if any(f.drives.d[k] >= 55.0 for k in VITAL):
+            return
+        if rng.uniform() >= 0.10:
+            return
+        cands = sorted(self.episodic.episodes,
+                       key=lambda e: e["strength"] * (0.5 + abs(e["outcome"])),
+                       reverse=True)[:10]
+        cands = [e for e in cands if e["tick"] not in self._reverie_seen]
+        if not cands:
+            return
+        ep = cands[0]
+        self._last_reverie_tick = tick
+        self._reverie_seen.add(ep["tick"])
+        if len(self._reverie_seen) > 40:
+            self._reverie_seen = set(sorted(self._reverie_seen)[-40:])
+        # reconsolidation: a revisited memory grows slightly stronger
+        ep["strength"] = min(1.0, ep["strength"] + 0.05)
+        frag = self.STORY_FRAGMENTS.get(ep["kind"], ep["kind"])
+        journal.log(tick, "reverie",
+                    f"تتذكر: {frag}",
+                    x=f.x, y=f.y)
 
     # ------------------------------------------------------------------
     # episodic triggers
@@ -342,6 +587,14 @@ class Mind:
         if ev.get("ate"):
             rec("eat", 0.8)
             self.selfmodel.note_outcome("food", 0.8)
+            # contentment (Phase 4): a good meal in a good state —
+            # named from the real signal (valence), never imposed
+            day = tick // 1440 + 1
+            if self.affect.valence > 0.65 and day > self._last_content_day:
+                self._last_content_day = day
+                journal.log(tick, "contentment", "أكلت وشبعَت — راضية",
+                            x=f.x, y=f.y)
+                self.mood = min(1.0, self.mood + 0.02)
         if ev.get("drank"):
             rec("drink", 0.6)
             self.beliefs.revise_var("water_at_river", 1.0, 0.3)
@@ -363,6 +616,30 @@ class Mind:
         if ev.get("placed"):
             rec("place", 0.5)
             self.selfmodel.note_outcome("building", 0.5)
+            # pride (Phase 4): building well, feeling well — named honestly
+            # from the real signal (valence), never imposed
+            if self.affect.valence > 0.6:
+                journal.log(tick, "pride", "فخورة بما بنت", x=f.x, y=f.y)
+                self.mood = min(1.0, self.mood + 0.03)
+            # structured building (Stage 4): advance the live project
+            proj = self._build_project
+            if proj is not None and proj.live:
+                mark = proj.record_placement()
+                if mark == "half":
+                    journal.log(tick, "project_half", "نصف البناء اكتمل",
+                                x=f.x, y=f.y)
+                elif mark == "done":
+                    self._projects_done += 1
+                    self.mood = min(1.0, self.mood + 0.05)
+                    journal.log(tick, "project_done", "أكملت بناءها المرتب",
+                                x=f.x, y=f.y)
+                    self._build_project = None
+            # beloved build sites: her creativity palette grows from where
+            # building felt good
+            self._build_sites.append((round(f.x, 1), round(f.y, 1),
+                                      round(self.affect.valence, 2)))
+            if len(self._build_sites) > 30:
+                self._build_sites = self._build_sites[-30:]
         # first sight of a fruit pile: a one-time kind of event (P-C's seed)
         for key, o in scene.objects.items():
             if o.kind == "pile" and not o.generated and key not in self._saw_pile_keys:
@@ -581,7 +858,7 @@ class Mind:
     # ------------------------------------------------------------------
     # stage 2: decision through beliefs + forward model
     # ------------------------------------------------------------------
-    def _decide(self, f, world, scene, winners, need, tick, light):
+    def _decide(self, f, world, scene, winners, need, tick, light, rng):
         d = f.drives.d
         cands = []  # (score, intent, fm_used, tag)  tag: "" | "routed" | "epistemic"
 
@@ -803,10 +1080,34 @@ class Mind:
             lx, ly = LANTERN_POS
             sc = f.drives.urgency("social") * 2.4 / (1.0 + f._travel(lx, ly) / 60.0)
             add(sc, ("social", lx, ly, 0))
+        # --- union (ADAM & EVE P3): the family drive seeks the partner ---
+        # Scored through the NORMAL intent machinery — the DECISION is hers,
+        # exactly like hunger->eat. We set the drive (physics); she chooses.
+        # f.partner is transient (set by Sim each tick, never serialised).
+        partner = getattr(f, "partner", None)
+        if partner is not None and d.get("family", 0.0) > 40.0:
+            # x1.2 (retuned 2026-11-04 for family weight 0.13; was x2.0 at
+            # weight 0.05): strong when desperate, never tyrannical
+            sc = f.drives.urgency("family") * 1.2 / (1.0 + f._travel(partner.x, partner.y) / 60.0)
+            add(sc, ("union", partner.x, partner.y, -1))
         # --- creation ---
         if d["creation"] > 48.0:
             if len(f.carry) >= 1:
                 bx, by = BUILD_SITE
+                # ---- waking creativity (Phase 4): when curious, she ----
+                # sometimes chooses her own beloved spot instead of the
+                # usual site. The choice is hers (best felt valence),
+                # the chance scales with curiosity. The place handler
+                # builds where the intent points, so this is visible in
+                # the world — not a private preference.
+                if d["curiosity"] > 55.0 and self._build_sites \
+                        and rng.uniform() < 0.35:
+                    alt = [s for s in self._build_sites
+                           if math.hypot(s[0] - BUILD_SITE[0],
+                                          s[1] - BUILD_SITE[1]) > 5.0]
+                    if alt:
+                        alt.sort(key=lambda s: -s[2])
+                        bx, by = alt[0][0], alt[0][1]
                 sc = f.drives.urgency("creation") * 2.2 / (1.0 + f._travel(bx, by) / 60.0)
                 add(sc, ("place", bx, by, -1))
             else:
@@ -946,7 +1247,19 @@ class Mind:
                         self.metrics.get("routed_candidates", 0) + 1
         if not cands:
             return ("wander", f.x, f.y, -1)
+        # obstacle memory (Phase 4): kinds that failed her twice in 3
+        # days score half — she learned, she adjusts. Applied to every
+        # decision; the survival filter below still preempts when
+        # lethal needs call, so a halved eat still beats non-survival
+        # options when she is starving.
+        cands = [(sc * self._obstacle_bias(intent[0], tick), intent, used, tag)
+                 for sc, intent, used, tag in cands]
         if crit_kinds:
+            # aspirations (Phase 4): her self-chosen goals bias intent
+            # scores. The survival filter still runs on the biased scores,
+            # so lethal needs preempt aspirations. Bias, never command.
+            cands = [(sc * self.aspirations.bonus(intent[0]), intent, used, tag)
+                     for sc, intent, used, tag in cands]
             surv = [c for c in cands if c[1][0] in crit_kinds]
             if surv:
                 cands = surv
@@ -1066,6 +1379,34 @@ class Mind:
             "endurance_pending": [list(r) for r in self._endurance_pending],
             "last_sleep_count": self._last_sleep_count,
             "metrics": dict(self.metrics),
+            # live novelty tracker state (additive; absent in old checkpoints)
+            "novelty_live": self.novelty_live.to_dict(),
+            # dreams (additive; absent in old checkpoints)
+            "dreamer": self.dreamer.to_dict(),
+            # aspirations (additive; absent in old checkpoints)
+            "aspirations": self.aspirations.to_dict(),
+            # mood (additive; absent in old checkpoints)
+            "mood": self.mood,
+            "mood_band": self._mood_band,
+            # Phase 4 batch 2 (additive; absent in old checkpoints)
+            "build_sites": [list(s) for s in self._build_sites],
+            "last_story_day": self._last_story_day,
+            "last_plan_tick": self._last_plan_tick,
+            # Phase 4 batch 3 — integration (additive; absent in old checkpoints)
+            "last_dawn_day": self._last_dawn_day,
+            "last_evening_day": self._last_evening_day,
+            "obstacles": {k: [list(t) for t in v]
+                          for k, v in self._obstacles.items()},
+            "obstacle_day": dict(self._obstacle_day),
+            "last_content_day": self._last_content_day,
+            "last_reverie_tick": self._last_reverie_tick,
+            "reverie_seen": sorted(self._reverie_seen),
+            # Stage 4 structured building (additive; absent in old checkpoints)
+            "build_project": self._build_project.to_dict()
+                             if self._build_project else None,
+            "projects_done": self._projects_done,
+            # ADAM & EVE P1 (additive; absent in old checkpoints)
+            "kinship_ready": self._kinship_ready,
         }
 
     @classmethod
@@ -1100,6 +1441,34 @@ class Mind:
         m._endurance_pending = [list(r) for r in d["endurance_pending"]]
         m._last_sleep_count = d["last_sleep_count"]
         m.metrics = dict(d["metrics"])
+        # live novelty: old checkpoints lack the key -> fresh dormant tracker
+        m.novelty_live = LiveNovelty.from_dict(d.get("novelty_live"))
+        # dreams: old checkpoints lack the key -> fresh weaver
+        m.dreamer = DreamWeaver.from_dict(d.get("dreamer", {}))
+        # aspirations: old checkpoints lack the key -> fresh engine
+        m.aspirations = AspirationEngine.from_dict(d.get("aspirations", {}))
+        # mood: old checkpoints lack the key -> neutral
+        m.mood = d.get("mood", 0.0)
+        m._mood_band = d.get("mood_band", 0)
+        # Phase 4 batch 2: old checkpoints lack the keys -> fresh
+        m._build_sites = [tuple(s) for s in d.get("build_sites", [])]
+        m._last_story_day = d.get("last_story_day", 0)
+        m._last_plan_tick = d.get("last_plan_tick", -10 ** 9)
+        # Phase 4 batch 3 — integration: old checkpoints lack the keys
+        m._last_dawn_day = d.get("last_dawn_day", 0)
+        m._last_evening_day = d.get("last_evening_day", 0)
+        m._obstacles = {k: [tuple(t) for t in v]
+                        for k, v in d.get("obstacles", {}).items()}
+        m._obstacle_day = d.get("obstacle_day", {})
+        m._last_content_day = d.get("last_content_day", 0)
+        m._last_reverie_tick = d.get("last_reverie_tick", -10 ** 9)
+        m._reverie_seen = set(d.get("reverie_seen", []))
+        # Stage 4 structured building (additive; absent in old checkpoints)
+        bp = d.get("build_project")
+        m._build_project = BuildProject.from_dict(bp) if bp else None
+        m._projects_done = d.get("projects_done", 0)
+        # ADAM & EVE P1 (additive; absent in old checkpoints)
+        m._kinship_ready = d.get("kinship_ready", False)
         m.tape_monitor = []
         m.decision_log = []
         return m

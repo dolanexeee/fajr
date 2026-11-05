@@ -64,6 +64,11 @@ def export_state(sim):
                  "intent": (f.intent[0] if f.intent else None),
                  "carry": list(f.carry)},
         "mind": (f.mind.snapshot() if getattr(f, "mind", None) is not None else None),
+        "adam": ({"x": round(sim.adam.x, 1), "y": round(sim.adam.y, 1),
+                  "asleep": sim.adam.asleep,
+                  "intent": (sim.adam.intent[0] if sim.adam.intent else None),
+                  "stats": dict(sim.adam.stats)}
+                 if sim.adam is not None else None),
         "stats": dict(f.stats),
         "journal_tail": sim.journal.entries[-16:],
     }
